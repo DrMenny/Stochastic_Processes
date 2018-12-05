@@ -1,0 +1,641 @@
+---
+title: "HW1 - Statistics for Stochastic Processes"
+author: "Andrea Pisani"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(MCMCpack)
+```
+
+## Excercise 1
+
+Assume a Dirichlet process (DP) prior, $DP(M, G_0(·))$, for distributions $G$ on $X$. Show that for any (measurable) disjoint subsets $B_1$ and $B_2$ of $X$, $Corr(G(B_1), G(B_2))$ is negative. Is the negative correlation for random probabilities induced by the DP
+prior a restriction? Discuss.
+
+### Solution 1
+
+We define $B_1  \cup B_2 \cup B_3 = X$, where $B_3 = (B_1 \cup B_2)^c$. In order to compute the correlation is sufficient to show that the covariance is negative, because  the variance is just a positive scale factor. Given $(X_1X_2 ...X_k) \sim Dir_{k-1}(\alpha_1, \alpha_2, ..., \alpha_k)$ we know that any multivariate moment of Dirichlet random variables can be obtained using the formula:
+
+
+$$
+\mathbb{E}[X_1^{r_1} X_2^{r_2} ...X_{k}^{r_{k}}] = \frac{\prod_{j=1}^{k} \mathbb{E[Z_j^{r_j}]}}{\mathbb{E}[T^R]}
+$$
+
+In our case, $R=\sum_{j=1}^{k} r_j$, $Z_j \sim Gamma(\alpha(B_j),1)$, $T \sim Gamma(\sum_{j=1}^{k} \alpha(B_j),1)$ and $\alpha(\cdot)$ is a posivite measure such that:
+$$
+\forall B_j \in X, \quad \alpha(B_j) = M \cdot g(B_j)
+$$
+where $M>0$ and $g(\cdot)$ is a probability measure. Given that $P$ is a Dirichlet Process:
+
+$$
+P(B_1), P(B_2), P(B_3) \sim  Dir_{2}(\alpha(B_1), \alpha(B_2), \alpha(B_3))
+$$
+The expected value is:
+
+$$
+  \mathbb{E}[P(B_i)] = \frac{\mathbb{E}[Z_i]}{\mathbb{E}[T]} = \frac{\alpha(B_i)}{\alpha(B_1) + \alpha(B_2) + \alpha(B_3)} = \frac{\alpha(B_i)}{\alpha(X)} = \frac{M \cdot g(B_i)}{M \cdot g(X)} = g(B_i)
+$$
+
+The covariance can be computed knowing that $Cov(P(B_1),P(B_2)) = \mathbb{E}[P(B_1)P(B_2)] - \mathbb{E}[P(B_1)]\mathbb{E}[P(B_2)]$. We use the multivariate moment of Dirichlet random variables formula again:
+
+$$
+\mathbb{E}[P(B_1)P(B_2)] = \frac{\mathbb{E}[Z_i]\mathbb{E}[Z_j]}{\mathbb{E}[T^2]} = \frac{\alpha(B_1)\alpha(B_2)}{(\alpha(X)+1)\alpha(X)} = 
+\frac{Mg(B_1)\cdot Mg(B_2)}{(M+1)M} = \frac{M}{M+1}g(B_1)g(B_2)
+$$
+
+Now we can compute the covariance:
+
+$$
+Cov(P(B_1),P(B_2)) = \mathbb{E}[P(B_1)P(B_2)] - \mathbb{E}[P(B_1)]\mathbb{E}[P(B_2)] = 
+$$
+$$
+= \frac{M}{M+1}g(B_1)g(B_2) - g(B_1)g(B_2) =\bigg( \frac{M}{M+1} - 1 \bigg) g(B_1)g(B_2) <0
+$$
+Because $\frac{M}{M+1}<1$ given that $M>0$ and $g(\cdot)$ is a probability measure.
+
+The fact that the correlation between random probabilities induced by the DP prior is negative is a consequences of the particolar support of the Dirichlet distribution, which is a $k-1$ simplex, a generalization of the triangle in $k-1$ dimensions. As a matter of fact, this support is limited between 0 and 1 and if one realization, say $P(B_1)$, increases, then $P(B_2)$ must decrease, because the overall sum must be always 1.
+
+This is not a limitation, because we can exploit this property to generate a cumulative distributions functions using a DP prior. Thanks to the negative correlation we are sure that if a probability measure in a subset increases, then it must decrease in another subset, in order to keep the overall sum of probability equal to 1.
+
+## Excercise 2
+
+Simulation of Dirichlet process prior realizations. Consider a $DP(M, G_0)$ prior over the space of distributions (equivalently c.d.f.s) $G$ on $R$, with $G_0 = N(0, 1)$.
+
+Use both Ferguson’s original definition and Sethuraman’s constructive definition to generate (multiple) prior realizations from the $DP(M, N(0, 1))$ for fixed $M$ with values ranging from small to large. 
+In addition to prior c.d.f. realizations, obtain, for each value of M, the corresponding prior distribution of the mean functional 
+$$\mu(G) = \int tdG(t)$$
+and for the variance functional 
+$$\sigma^2(G) = \int t^2dG(t) - \bigg[\int tdG(t) \bigg]^2$$ 
+(Note that, because $G_0$ has finite first and second moments, both of the random variables $µ(G)$ and $σ^2(G)$ take finite values almost surely; see Section 4 in Ferguson, 1973).
+
+Finally, consider simulation under a mixture of DPs (MDP) prior, which extends the DP above by adding a gamma prior for $M$, that is $M \sim Gamma(3, 3)$.
+Then, the MDP prior for $G$ is defined such that, given 
+$$G|M ∼ DP(M, N(0, 1))$$
+To simulate from the MDP, one can use either of the DP definitions given draws for $M$ from its prior.
+
+### Solution 2
+
+The next chunk of code implements the Ferguson's original definition of the Dirichlet process to generate multiple prior realizations.
+
+```{r}
+sample.dir.prior <- function(samples=5, nn=50, M=5, m=0, s=1) {
+  
+  ### Interval Bound
+  bound = max(m-4*s, m+4*s)
+  ### Discretization of the space
+  x = seq(-bound, bound, length=nn+1)
+  
+  ### probability measure for each interval     
+  y = c()
+  y[1] = pnorm(x[1], m, s)
+  for(i in 2:(nn+1)) {
+    y[i] = pnorm(x[i], m, s)-pnorm(x[i-1], m, s)
+  }
+  y = c(y, 1-pnorm(x[nn+1], m, s))
+  
+  ### creating the non-negative measures
+  param = M*y
+  
+  ### sampling from the dirichlet distribution
+  sdir = rdirichlet(samples, param) 
+  ### Generating the CDF
+  draw = apply(t(sdir), 2, cumsum)
+  return(list(draw, bound))
+}
+```
+
+Changing $M$ changes the shapes of each realization of the prior distributions. As $M$ grows, the distributions are more concentrated around the theoretical $N(0,1)$ represented by the black line.
+
+This is due to the fact that M represents how much confident we are that the prior distribution is true.
+
+For each simulation using the DP prior I'm generating 10 CDF, each represented with a different color.
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+set.seed(123)
+samples = 10
+nn = 100
+
+par(mfrow=c(1,2))
+draws = sample.dir.prior(samples = samples, nn=nn, M=0.1, m=0, s=1)
+results = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, results, col=1:5, type="l", ylim=c(0,1), xlab="", ylab="")
+curve(pnorm(x), add=T)
+title("M=0.1")
+
+draws = sample.dir.prior(samples = samples, nn=nn, M=5, m=0, s=1)
+results = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, results, col=1:5, type="l", ylim=c(0,1), xlab="", ylab="")
+curve(pnorm(x), add=T)
+title("M=5")
+
+par(mfrow=c(1,2))
+draws = sample.dir.prior(samples = samples, nn=nn, M=15, m=0, s=1)
+results = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, results, col=1:5, type="l", ylim=c(0,1), xlab="", ylab="")
+curve(pnorm(x), add=T)
+title("M=15")
+
+draws = sample.dir.prior(samples = samples, nn=nn, M=100, m=0, s=1)
+results = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, results, col=1:5, type="l", ylim=c(0,1), xlab="", ylab="")
+curve(pnorm(x), add=T)
+title("M=100")
+```
+
+Now we compute the Sethuraman's implementation of the Dirichlet Process prior. This implementation uses weights associated to each subset of the support.
+
+```{r}
+sim.dirichlet.process <- function(nn=1000, M = 1) {
+  theta_vec <- rnorm(nn, 0, 1)
+  
+  ### Generating weights
+  z <- rbeta(nn, 1, M)
+  log_z  <- log(z)
+  S_log <- c(0 , cumsum(log((1 - z)))[-nn])
+  log_w <- log_z + S_log
+  w <- exp(log_w)
+  return(list(theta_vec = theta_vec, w = w))
+}
+```
+
+In the same way as we saw before, increasing $M$ gives a distribution closer to the theoretical $N(0,1)$ represented by the black line.
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+par(mfrow=c(1,2))
+set.seed(1234)
+results <- sim.dirichlet.process(nn = 100, M = 0.1)
+plot(results$theta_vec[order(results$theta_vec)],
+     cumsum(results$w[order(results$theta_vec)]), type="l", xlab="", ylab="",
+     ylim=c(0,1), xlim=c(-4,4))
+curve(pnorm(x), add=T)
+title("M=0.1")
+for (i in 1:9) {
+  results <- sim.dirichlet.process(nn = 100, M = 0.1)
+  lines(results$theta_vec[order(results$theta_vec)],
+     cumsum(results$w[order(results$theta_vec)]), type="l", col=i)
+}
+
+results <- sim.dirichlet.process(nn = 100, M = 5)
+plot(results$theta_vec[order(results$theta_vec)],
+     cumsum(results$w[order(results$theta_vec)]), type="l", xlab="", ylab="",
+     ylim=c(0,1), xlim=c(-4,4))
+curve(pnorm(x), add=T)
+title("M=5")
+for (i in 1:9) {
+  results <- sim.dirichlet.process(nn = 100, M = 5)
+  lines(results$theta_vec[order(results$theta_vec)],
+     cumsum(results$w[order(results$theta_vec)]), type="l", col=i)
+}
+
+par(mfrow=c(1,2))
+results <- sim.dirichlet.process(nn = 100, M = 15)
+plot(results$theta_vec[order(results$theta_vec)],
+     cumsum(results$w[order(results$theta_vec)]), type="l", xlab="", ylab="",
+     ylim=c(0,1), xlim=c(-4,4))
+curve(pnorm(x), add=T)
+title("M=15")
+for (i in 1:9) {
+  results <- sim.dirichlet.process(nn = 100, M = 15)
+  lines(results$theta_vec[order(results$theta_vec)],
+     cumsum(results$w[order(results$theta_vec)]), type="l", col=i)
+}
+
+results <- sim.dirichlet.process(nn = 1000, M = 100)
+plot(results$theta_vec[order(results$theta_vec)],
+     cumsum(results$w[order(results$theta_vec)]), type="l", xlab="", ylab="",
+     ylim=c(0,1), xlim=c(-4,4))
+curve(pnorm(x), add=T)
+title("M=100")
+for (i in 1:9) {
+  results <- sim.dirichlet.process(nn = 1000, M = 100)
+  lines(results$theta_vec[order(results$theta_vec)],
+     cumsum(results$w[order(results$theta_vec)]), type="l", col=i)
+}
+```
+
+Using the Ferguson's definition of the DP, I'll compute the functional mean and the functional variance for each simulation, fixing the value of $M$. The functional mean is represented in blue, while the realizations of the DP prior are in violet.
+
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+set.seed(123)
+samples = 10
+nn = 100
+
+par(mfrow=c(1,2))
+draws = sample.dir.prior(samples = samples, nn=nn, M=0.1, m=0, s=1)
+results = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, results, col="orchid", type="l", ylim=c(0,1), xlab="", ylab="")
+mean.fun = apply(results, 1, mean)
+var.fun = apply(results, 1, var)
+lines(xx, mean.fun, type="l", col="blue",lwd=1.5)
+title("M = 0.1 , Functional Mean")
+plot(xx, var.fun, type="l", col="black", lwd=1.5, xlab="", ylab="")
+title("M = 0.1 , Functional Variance")
+
+par(mfrow=c(1,2))
+draws = sample.dir.prior(samples = samples, nn=nn, M=10, m=0, s=1)
+results = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, results, col="orchid", type="l", ylim=c(0,1), xlab="", ylab="")
+mean.fun = apply(results, 1, mean)
+var.fun = apply(results, 1, var)
+lines(xx, mean.fun, type="l", col="blue",lwd=1.5)
+title("M = 10 , Functional Mean")
+plot(xx, var.fun, type="l", col="black", lwd=1.5, xlab="", ylab="")
+title("M = 10 , Functional Variance")
+
+par(mfrow=c(1,2))
+draws = sample.dir.prior(samples = samples, nn=nn, M=100, m=0, s=1)
+results = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, results, col="orchid", type="l", ylim=c(0,1), xlab="", ylab="")
+mean.fun = apply(results, 1, mean)
+var.fun = apply(results, 1, var)
+lines(xx, mean.fun, type="l", col="blue",lwd=1.5)
+title("M = 100 , Functional Mean")
+plot(xx, var.fun, type="l", col="black", lwd=1.5, xlab="", ylab="")
+title("M = 100 , Functional Variance")
+```
+
+Looking at the Variance scale it's clear that it decreases as $M$ increases. In each case it grows around the central values and it goes to zero as the distribution reaches the values 0 or 1.
+
+The functional mean becomes more similar to the $N(0,1)$ distribution as $M$ grows.
+
+Now, we extend the Dirichlet Process by adding a gamma prior for $M$.
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+set.seed(1234567)
+samples = 10
+nn = 100
+
+M.prior = rgamma(1,3,3)
+prior.vec = M.prior
+draws = sample.dir.prior(samples = 1, nn=nn, M=M.prior, m=0, s=1)
+results = matrix(unlist(draws[1]), ncol = 1)
+
+for (i in 1:samples) {
+  M.prior = rgamma(1,3,3)
+  prior.vec = c(prior.vec, M.prior)
+  draws = sample.dir.prior(samples = 1, nn=nn, M=M.prior, m=0, s=1)
+  new.results = matrix(unlist(draws[1]), ncol = 1)
+  results = cbind(results, new.results)
+}
+
+cat("Mean of the prior distribution M:", mean(prior.vec))
+plot(density(prior.vec), type="l", xlab="", ylab="", main="M prior distribution")
+
+par(mfrow=c(1,2))
+matplot(xx, results, col="orchid", type="l", ylim=c(0,1), xlab="", ylab="")
+mean.fun = apply(results, 1, mean)
+lines(xx, mean.fun, type="l", col="blue",lwd=2)
+curve(pnorm(x), add=T, col="red")
+title("M ~ Gamma(3,3)")
+
+draws = sample.dir.prior(samples = samples, nn=nn, M=1, m=0, s=1)
+results = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, results, col="orchid", type="l", ylim=c(0,1), xlab="", ylab="")
+mean.fun = apply(results, 1, mean)
+lines(xx, mean.fun, type="l", col="blue",lwd=2)
+curve(pnorm(x), add=T, col="red")
+title("M = 1")
+```
+
+All the posterior realizations of the process are represented in violet. The mean function is plotted in blue and the red line represents the theoretical $N(0,1)$ distribution. On the left there are the results considering $M \sim Gamma(3,3)$, while on the right $M=1$. The results are very similar because the mean of the M prior distribution is close to 1. 
+
+## Excercise 3
+
+Consider data = $(y_1, ..., y_n)$, and the following DP-based nonparametric model:
+
+$$
+Y_i|G \sim i.i.d. \ G \quad i = 1, ... ,n \\
+G \sim DP(M,G_0) \\
+G_0 \sim N(m, s^2) \\
+m, s^2, M \ \text{fixed}
+$$
+The objective here is to use simulated data to study posterior inference results for $G$ under different prior choices for $M$ and $G_0$, different underlying distributions that generate the data, and different sample sizes. In particular,  consider:
+
+* two data generating distributions: 1) a N(0; 1) distribution, and 2) the mixture
+of normal distributions which yields a bimodal c.d.f. with heavy right tail,
+
+$$
+0.5 \cdot N(2.5, \ 0.5^2) + 0.3 \cdot N(0.5, \ 0.7^2) + 0.2 \cdot N(1.5,\ 2^2)
+$$
+
+* sample sizes n = 20, n = 200, and n = 2000.
+
+Use three values of M, say, 5 and 100.
+
+Discuss prior specification for the DP prior parameters $m, s^2$. For each of the 6 data sets corresponding to the combinations above, obtain posterior point and interval estimates for the c.d.f. $G$ and discuss how well the model fits the data. Perform a prior sensitivity analysis to study the effect of $m, s^2, M$ on the posterior estimates for $G$.
+
+### Solution 3
+
+In order to simulate the posterior distribution I used the Ferguson's definition of the DP, modifying the parameters of the Dirichlet distribution with a vector that counts the number of points coming from the data that fall in each interval.
+
+```{r}
+sample.dir.post <- function(samples=5, data, nn=1000, M=5, m=0, s=1) {
+  ### Sorting the dataset, useful for the counter
+  data = sort(data)
+  ### Bound of the interval
+  bound = max(c(max(abs(data)), m-4*s, m+4*s)) 
+  x = seq(-bound, bound, length=nn+1)
+  ### Vector that counts the points
+  data_vec = rep(0, nn+2)
+  
+  ### Counting the number of points in each interval     
+  j = 1
+  for(i in 1:(nn+1)) {
+    while((data[j] <= x[i]) & (j <= length(data))) {
+      data_vec[i] = data_vec[i] + 1
+      j = j + 1
+    } 
+  }
+  
+  ### Vector of probability measures
+  y = c()
+  y[1] = pnorm(x[1], m, s)
+  for(i in 2:(nn+1)) {
+    y[i] = pnorm(x[i], m, s)-pnorm(x[i-1], m, s)
+  }
+  y = c(y, 1-pnorm(x[nn+1], m, s))
+  
+  ### Parameters of the Dirichlet distribution
+  param = M*y + data_vec
+  
+  ### Sampling from the Dirichlet distribution
+  sdir = rdirichlet(samples, param)
+  
+  ### Matrix of cdf
+  draw = apply(t(sdir), 2, cumsum)
+  return(list(draw, bound))
+}
+```
+
+In the first case I draw samples from a $N(0,1)$ distribution, with sample size 20 and 200. If I don't know the distribution of these points, in order to use a normal distribution I should check if they are normally distributed. I choosed to use a Shapiro-Wilk test, a qqplot and the histograms in order to check my assumption.
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+set.seed(123)
+ss1 = rnorm(20)
+ss2 = rnorm(200)
+
+### n_sample=20
+shapiro.test(ss1)
+
+### n_sample=200
+shapiro.test(ss2)
+
+par(mfrow=c(1,2))
+qqnorm(ss1)
+qqline(ss1)
+
+qqnorm(ss2)
+qqline(ss2)
+
+
+par(mfrow=c(1,2))
+hist(ss1, prob=T, xlab="", ylab="", main="n_sample=20")
+hist(ss2, prob=T, xlab="", ylab="", main="n_sample=200")
+```
+The assumption of normality will be accepted because, even if the Shapiro-Wilk test gives a low p-value in the second case, the qqplot and the histogram show a good normal behaviour of the data in both cases.
+
+In order to choose the prior hyperparameters $m$ and $s^2$ I compute the sample mean and the sample standard deviation of each data samples.
+
+```{r echo=FALSE}
+cat("mean n_sample=20:", mean(ss1))
+cat("variance n_sample=20:", sd(ss1))
+
+cat("mean n_sample=200:", mean(ss2))
+cat("variance n_sample=200:", sd(ss2))
+
+```
+
+For each similation I will use the the values of the hyperparameters showed in the previous computation. The theoretical distribution $N(0,1)$ is plotted in violet, in order to check the behaviour of the model.
+
+For each simulation I generate 10 posterior distributions, and this parameter will be constant for every simulation from now on.
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+### n_sample=20 from a N(0,1) distribution
+### nn=100 discretization of the DP
+### samples=10 are the posterior distributions generated from the DP
+nn = 100
+samples = 10
+
+par(mfrow=c(1,2))
+draws = sample.dir.post(samples = samples, nn=nn, data=ss1, 
+                        M=5, m=mean(ss1), s=sd(ss1))
+result1 = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, result1, col=1:10, type="l", ylim=c(0,1), main="n=20, M=5")
+curve(pnorm(x), add=T, col="orchid")
+
+draws = sample.dir.post(samples = samples, nn=nn, data=ss1, 
+                        M=100, m=mean(ss1), s=sd(ss1))
+result2 = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, result2, col=1:10, type="l", ylim=c(0,1), main="n=20, M=100")
+curve(pnorm(x), add=T, col="orchid")
+```
+
+In this case, where n_sample=20, changing $M$ changes the posterior distributions, because the dataset alone is too small to condition the posteriors to become more similar to the normal distribution. It's like if we are forcing the normal behaviour of the posterior by increasing our confidence in the normal prior and decrease our confidence in the data.
+
+As we can see in the next plots, as $M$ raises also the length of the 95% credibility intervals get smaller. This is due to the decrease of the variance as $M$ grows. 
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+par(mfrow=c(1,2))
+mean.fun1 = apply(result1, 1, mean)
+CI.fun1 = apply(result1, 1, quantile, probs=c(0.025,0.975))
+plot(xx, mean.fun1, type="l", col="darkblue",lwd=1.5, xlab="", ylab="")
+title("n=20, M = 1, Mean and CI")
+lines(xx, CI.fun1[1,], type="l", col="red", lwd=1.5, xlab="", ylab="")
+lines(xx, CI.fun1[2,], type="l", col="red", lwd=1.5, xlab="", ylab="")
+
+
+mean.fun2 = apply(result2, 1, mean)
+CI.fun2 = apply(result2, 1, quantile, probs=c(0.025,0.975))
+plot(xx, mean.fun2, type="l", col="darkblue",lwd=1.5, xlab="", ylab="")
+title("n=20, M = 100 , Mean and CI")
+lines(xx, CI.fun2[1,], type="l", col="red", lwd=1.5, xlab="", ylab="")
+lines(xx, CI.fun2[2,], type="l", col="red", lwd=1.5, xlab="", ylab="")
+```
+
+The same procedure will be followed for n_sample=200.
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+### n_sample=200 from a N(0,1) distribution
+### nn=100 discretization of the DP
+### samples=10 are the posterior distributions generated from the DP
+nn = 100
+samples = 10
+
+par(mfrow=c(1,2))
+draws = sample.dir.post(samples = samples, nn=nn, data=ss2, 
+                        M=5, m=mean(ss2), s=sd(ss2))
+result1 = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, result1, col=1:10, type="l", ylim=c(0,1), main="n=200, M=5")
+curve(pnorm(x), add=T, col="orchid")
+
+draws = sample.dir.post(samples = samples, nn=nn, data=ss2, 
+                        M=100, m=mean(ss2), s=sd(ss2))
+result2 = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, result2, col=1:10, type="l", ylim=c(0,1), main="n=200, M=100")
+curve(pnorm(x), add=T, col="orchid")
+```
+
+In this case the effect of the parameter $M$ is negligeable, because the dataset is already inducing a normal behaviour to the posterior distribution. Also the Credibility Intervals don't change so much as $M$ grows: we can notice a reduction but it's not as significant as the previous case where n_sample=20.
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+par(mfrow=c(1,2))
+mean.fun1 = apply(result1, 1, mean)
+CI.fun1 = apply(result1, 1, quantile, probs=c(0.025,0.975))
+plot(xx, mean.fun1, type="l", col="darkblue",lwd=1.5, xlab="", ylab="")
+title("n=200, M = 1, Mean and CI")
+lines(xx, CI.fun1[1,], type="l", col="red", lwd=1.5, xlab="", ylab="")
+lines(xx, CI.fun1[2,], type="l", col="red", lwd=1.5, xlab="", ylab="")
+
+mean.fun2 = apply(result2, 1, mean)
+CI.fun2 = apply(result2, 1, quantile, probs=c(0.025,0.975))
+plot(xx, mean.fun2, type="l", col="darkblue",lwd=1.5, xlab="", ylab="")
+title("n=200, M = 100 , Mean and CI")
+lines(xx, CI.fun2[1,], type="l", col="red", lwd=1.5, xlab="", ylab="")
+lines(xx, CI.fun2[2,], type="l", col="red", lwd=1.5, xlab="", ylab="")
+```
+
+Now, I will use data that comes from a finite mixture of normal distributions. The real density is plotted using 20000 samples from from the mixture and will be used as benchmark to check the results.
+
+```{r, fig.width=10, fig.height=4}
+rmix = function(n,pi,mu,s){
+  z = sample(1:length(pi),prob=pi,size=n,replace=TRUE)
+  x = rnorm(n,mu[z],s[z])
+  return(x)
+}
+
+set.seed(123)
+ss1 = rmix(n=20, pi=c(0.5, 0.3, 0.2), 
+         mu=c(2.5, 0.5, 1.5), s=c(0.5, 0.7, 2))
+
+ss2 = rmix(n=200, pi=c(0.5, 0.3, 0.2), 
+         mu=c(2.5, 0.5, 1.5), s=c(0.5, 0.7, 2))
+
+### This dataset will be used to generate the "real" cdf of the finite mixture
+ss3 = rmix(n=20000, pi=c(0.5, 0.3, 0.2), 
+         mu=c(2.5, 0.5, 1.5), s=c(0.5, 0.7, 2))
+
+### "real" distribution
+par(mfrow=c(1,2))
+plot(density(ss3), xlab="", ylab="", main="Mixture Density", lwd=1.5)
+plot(sort(ss3),1:20000/20000, lwd=1.5, type="l", main="Mixture Distribution",
+     xlab="", ylab="")
+
+```
+
+First of all, I use the dataset with n_sample=20 (for each plot I will just write n=20), with $M=5$ and $M=100$. The blue line represent the "real" finite mixture, while the violet curves are posterior realizations of the DP. 
+
+The hyperparameters of the prior normal distribution have been chosen using the mean and the sample standard deviation.
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+### n_sample=20 from the mixture, nn=100 discretization of the DP, 
+### samples=5 are the posterior distribution generated from the DP
+nn = 100
+samples = 10
+
+par(mfrow=c(1,2))
+draws = sample.dir.post(samples = samples, nn=nn, data=ss1, 
+                        M=5, m=mean(ss1), s=sd(ss1))
+result1 = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, result1, col="orchid", type="l", ylim=c(0,1), main="n=20, M=5",
+        xlab="", ylab="")
+lines(sort(ss3),1:20000/20000, col="darkblue", lwd=1.5)
+
+draws = sample.dir.post(samples = samples, nn=nn, data=ss1, 
+                        M=100, m=mean(ss1), s=sd(ss1))
+result2 = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, result2, col="orchid", type="l", ylim=c(0,1), main="n=20, M=100",
+        xlab="", ylab="")
+lines(sort(ss3),1:20000/20000, col="darkblue", lwd=1.5)
+```
+
+In both cases there is a significant variance between the curves. When M=5 the posteriors tends to deviate from the "real" blue cdf of the mixture, and this is predictable considering that we have only 20 samples and that the normal prior cannot capture the two peaks of the mixture.
+
+In the second case, where M=100, there is a clear overestimation due to the influence of the prior that is too big. The cdf is now more similar to a normal one because is smoother, and cannot show the 2 peaks of the mixture.
+
+As it can be seen in the next plots of the functional mean and the 95% Credibility interval, the length of this interval for each point of the functional mean is larger for M=5 than M=100. This is expectable because if I choose M=100 I will have a lot of confidence in the prior distributions and the realizations of the Dirichlet Process tends to be similar to the chosen prior. Also, the variance decreases as $M$ grows.
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+par(mfrow=c(1,2))
+mean.fun1 = apply(result1, 1, median)
+CI.fun1 = apply(result1, 1, quantile, probs=c(0.025,0.975))
+plot(xx, mean.fun1, type="l", col="darkblue",lwd=1.5, xlab="", ylab="")
+title("n=20, M = 5, Mean and CI")
+lines(xx, CI.fun1[1,], type="l", col="red", lwd=1, xlab="", ylab="")
+lines(xx, CI.fun1[2,], type="l", col="red", lwd=1, xlab="", ylab="")
+
+mean.fun2 = apply(result2, 1, median)
+CI.fun2 = apply(result2, 1, quantile, probs=c(0.025,0.975))
+plot(xx, mean.fun2, type="l", col="darkblue",lwd=1.5, xlab="", ylab="")
+title("n=20, M = 100 , Mean and CI")
+lines(xx, CI.fun2[1,], type="l", col="red", lwd=1, xlab="", ylab="")
+lines(xx, CI.fun2[2,], type="l", col="red", lwd=1, xlab="", ylab="")
+```
+
+If the samples from the mixture are 200, the results are different, beacuse the posterior distribution can captures the shape of the "real" mixture. This is true when M=5, meaning that the prior has a minor influence on the posterior. 
+
+Setting M=100 the behaviour of the posterior tends to follow the normal and therefore is smoother than the previous one. This means that the two peaks of the mixture cannot be described by the posterior.
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+### n_sample=200 from the mixture, nn=10 discretization of the DP, 
+### samples=5 are the posterior distribution generated from the DP
+nn = 100
+samples = 10
+
+par(mfrow=c(1,2))
+draws = sample.dir.post(samples = samples, nn=nn, data=ss2, 
+                        M=5, m=mean(ss2), s=sd(ss2))
+result1 = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, result1, col="orchid", type="l", ylim=c(0,1), main="n=200, M=5",
+        xlab="", ylab="")
+lines(sort(ss3),1:20000/20000, col="darkblue", lwd=1.5)
+
+draws = sample.dir.post(samples = samples, nn=nn, data=ss2, 
+                        M=100, m=mean(ss2), s=sd(ss2))
+result2 = matrix(unlist(draws[1]), ncol = samples)
+xx =  seq(-draws[[2]],draws[[2]], length=nn+2)
+matplot(xx, result2, col="orchid", type="l", ylim=c(0,1), main="n=200, M=100",
+        xlab="", ylab="")
+lines(sort(ss3),1:20000/20000, col="darkblue", lwd=1.5)
+```
+
+Looking at the plot of the posterior mean distribution, it's clear that the second one, with M=100, is smoother than the first one with M=5.
+
+```{r echo=FALSE, fig.width=10, fig.height=4}
+par(mfrow=c(1,2))
+mean.fun1 = apply(result1, 1, median)
+CI.fun1 = apply(result1, 1, quantile, probs=c(0.025,0.975))
+plot(xx, mean.fun1, type="l", col="darkblue",lwd=1.5, xlab="", ylab="")
+title("n=200, M = 5, Mean and CI")
+lines(xx, CI.fun1[1,], type="l", col="red", lwd=1, xlab="", ylab="")
+lines(xx, CI.fun1[2,], type="l", col="red", lwd=1, xlab="", ylab="")
+
+
+mean.fun2 = apply(result2, 1, median)
+CI.fun2 = apply(result2, 1, quantile, probs=c(0.025,0.975))
+plot(xx, mean.fun2, type="l", col="darkblue",lwd=1.5, xlab="", ylab="")
+title("n=200, M = 100 , Mean and CI")
+lines(xx, CI.fun2[1,], type="l", col="red", lwd=1, xlab="", ylab="")
+lines(xx, CI.fun2[2,], type="l", col="red", lwd=1, xlab="", ylab="")
+```
+
+
+
+
